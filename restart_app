@@ -1,0 +1,82 @@
+#! /usr/bin/perl
+
+use strict;
+use warnings;
+
+use POSIX qw(:sys_wait_h SIGTERM);
+use Getopt::Long;
+use Filesys::Notify::Simple;
+use Pod::Usage qw/pod2usage/;
+
+our $VERSION = '0.01';
+
+# -------------------------------------------------------------------------
+# configuration part
+
+my $restart = ['.'];
+my $signal  = SIGTERM; # SIGTERM
+
+GetOptions(
+    'r|restart=s' => sub { $restart = [split /,/, $_[1]] },
+    's|signal'    => \$signal,
+    'h|help'      => \my $help,
+) or pod2usage(0);
+pod2usage(1) if $help;
+
+# -------------------------------------------------------------------------
+# code part
+
+&main; exit;
+
+sub main {
+    print "watching " . join(", ", @$restart) . "\n";
+    my @child = @ARGV;
+    my $watcher = Filesys::Notify::Simple->new($restart);
+    my $pid = spawn_child(@child);
+    while (1) {
+        $watcher->wait(sub {
+            for my $event (@_) {
+                print "-- $event->{path} was changed\n";
+            }
+            kill $signal, $pid;
+            waitpid $pid, -1;
+            $pid = spawn_child(@child);
+        });
+    }
+}
+
+sub spawn_child {
+    my @child = @_;
+
+    if (my $pid = fork()) {
+        return $pid; # parent(watcher)
+    } elsif ($pid == 0) {
+        exec @child; # child(application)
+
+        die "cannot reach here";
+    } else {
+        die "cannot fork: $!";
+    }
+}
+
+__END__
+
+=head1 NAME
+
+restart_app - restarts the command when files change
+
+=head1 SYNOPSIS
+
+    $ restart_app -r lib,config -- your other command
+
+=head1 AUTHOR
+
+Kazuho Oku
+
+written by tokuhirom
+
+=head1 LICENSE
+
+This program is free software, you can redistribute it and/or modify it under the same terms as Perl 5.10.
+
+=cut
